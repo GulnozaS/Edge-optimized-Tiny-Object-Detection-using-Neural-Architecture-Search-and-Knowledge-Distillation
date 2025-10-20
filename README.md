@@ -1,4 +1,3 @@
-```markdown
 # Edge-Optimized Tiny Object Detection
 
 ## 🚀 Quick Start
