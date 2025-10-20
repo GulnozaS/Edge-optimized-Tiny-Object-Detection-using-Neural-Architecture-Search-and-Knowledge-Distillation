@@ -52,5 +52,5 @@ if __name__ == "__main__":
 
 ## 👥 Team
 - Gulnoza Sabirjonova (220278)
-- Feruza Khudoyberdiyeva (220328)
+- Feruza Khudoyberdiyeva (221328)
 ```
