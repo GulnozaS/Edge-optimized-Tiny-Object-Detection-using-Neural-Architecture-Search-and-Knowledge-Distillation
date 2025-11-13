@@ -4,17 +4,16 @@
 
 ### Environment Setup
 ```bash
-# Create and activate environment
-conda create -n edge-detection python=3.8 -y
-conda activate edge-detection
+# Create and activate virtual environment
+python3 -m venv edge-detection-env
+source edge-detection-env/bin/activate
 
 # Install dependencies
 pip install torch torchvision ultralytics opencv-python numpy pillow
 ```
 
-### Dataset Links
-- **VisDrone Dataset**: http://aiskyeye.com/download/object-detection-2/
-- **Tiny Person Dataset**: https://github.com/ucas-vg/TinyBenchmark
+### Dataset
+- **VisDrone Dataset**: https://github.com/VisDrone/VisDrone-Dataset
 
 ## 📁 Project Structure
 ```
@@ -23,7 +22,6 @@ pip install torch torchvision ultralytics opencv-python numpy pillow
 ├── evaluate_baseline.py    # Baseline evaluation
 ├── organize_visdrone.py    # Dataset organization
 ├── explore_visdrone.py     # Data analysis
-├── yolov8n.pt             # Pre-trained model
 └── README.md              # This file
 ```
 
