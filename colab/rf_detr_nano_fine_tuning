@@ -1,0 +1,175 @@
+!pip install -q rfdetr supervision opencv-python
+
+import os
+import glob
+import json
+import cv2
+import numpy as np
+from pathlib import Path
+
+import supervision as sv
+from rfdetr import RFDETRNano
+
+# Raw VisDrone (original structure)
+RAW_ROOT = "content/VisDrone"
+
+TRAIN_IMAGES = "/content/VisDrone/train/VisDrone2019-DET-train/images"
+TRAIN_ANN    = "/content/VisDrone/train/VisDrone2019-DET-train/annotations"
+
+VAL_IMAGES   = "/content/VisDrone/val/VisDrone2019-DET-val/images"
+VAL_ANN      = "/content/VisDrone/val/VisDrone2019-DET-val/annotations"
+
+# Target COCO-like directory for RF-DETR
+COCO_ROOT = "/content/visdrone_coco_rfdetr"
+
+for split in ["train", "valid"]:
+    os.makedirs(os.path.join(COCO_ROOT, split, "images"), exist_ok=True)
+
+from shutil import copy2
+
+def copy_images(src_dir, dst_dir):
+    os.makedirs(dst_dir, exist_ok=True)
+    img_paths = glob.glob(os.path.join(src_dir, "*.jpg"))
+    for p in img_paths:
+        copy2(p, dst_dir)
+
+copy_images(TRAIN_IMAGES, os.path.join(COCO_ROOT, "train", "images"))
+copy_images(VAL_IMAGES,   os.path.join(COCO_ROOT, "valid", "images"))
+
+VISDRONE_CLASSES = {
+    1: "pedestrian",
+    2: "people",
+    3: "bicycle",
+    4: "car",
+    5: "van",
+    6: "truck",
+    7: "tricycle",
+    8: "awning-tricycle",
+    9: "bus",
+    10: "motor"
+}
+
+def visdrone_to_coco(images_dir, labels_dir, output_json):
+    images = []
+    annotations = []
+    image_id = 1
+    annotation_id = 1
+
+    img_paths = sorted(glob.glob(os.path.join(images_dir, "*.jpg")))
+
+    for img_path in img_paths:
+        fname = os.path.basename(img_path)
+        label_path = os.path.join(labels_dir, fname.replace(".jpg", ".txt"))
+
+        img = cv2.imread(img_path)
+        if img is None:
+            print("Skipping unreadable:", img_path)
+            continue
+        h, w = img.shape[:2]
+
+        images.append({
+            "id": image_id,
+            "file_name": f"images/{fname}",
+            "height": h,
+            "width": w
+        })
+
+        if os.path.exists(label_path):
+            with open(label_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    parts = line.split(",")
+                    if len(parts) < 6:
+                        continue
+
+                    x, y, bw, bh = map(float, parts[0:4])
+                    cls_id = int(parts[5])
+
+                    if cls_id not in VISDRONE_CLASSES:
+                        continue
+
+                    bbox = [x, y, bw, bh]
+                    area = bw * bh
+
+                    annotations.append({
+                        "id": annotation_id,
+                        "image_id": image_id,
+                        "category_id": cls_id,
+                        "bbox": bbox,
+                        "area": area,
+                        "iscrowd": 0
+                    })
+                    annotation_id += 1
+
+        image_id += 1
+
+    categories = [
+        {"id": cid, "name": name, "supercategory": "object"}
+        for cid, name in VISDRONE_CLASSES.items()
+    ]
+
+    coco = {
+        "images": images,
+        "annotations": annotations,
+        "categories": categories
+    }
+
+    with open(output_json, "w") as f:
+        json.dump(coco, f)
+
+    print(f"Saved COCO annotations to {output_json}")
+    print(f"Images: {len(images)}, Annotations: {len(annotations)}")
+
+visdrone_to_coco(
+    images_dir=TRAIN_IMAGES,   # ORIGINAL images
+    labels_dir=TRAIN_ANN,      # ORIGINAL annotations
+    output_json=os.path.join(COCO_ROOT, "train", "_annotations.coco.json"),
+)
+
+visdrone_to_coco(
+    images_dir=VAL_IMAGES,     # ORIGINAL val images
+    labels_dir=VAL_ANN,        # ORIGINAL val annotations
+    output_json=os.path.join(COCO_ROOT, "valid", "_annotations.coco.json"),
+)
+
+num_classes = 10
+model = RFDETRNano(num_classes=num_classes)
+
+OUTPUT_DIR = "/content/rfdetr_nano_visdrone_ft"
+
+model.train(
+    dataset_dir=COCO_ROOT,
+    epochs=30,
+    batch_size=2,
+    grad_accum_steps=8,
+    lr=1e-4,
+    output_dir=OUTPUT_DIR,
+    early_stopping=True,
+    tensorboard=False,
+)
+
+best_ckpt = os.path.join(OUTPUT_DIR, "checkpoint_best_total.pth")
+
+model_ft = RFDETRNano(
+    num_classes=num_classes,
+    pretrain_weights=best_ckpt
+)
+
+def rfdetr_ft_predict(image_rgb):
+    det = model_ft.predict(image_rgb, threshold=0.3)
+    if isinstance(det, sv.Detections):
+        return det
+    # same fallback as before if needed
+    return sv.Detections.empty()
+
+metrics_rfdetr_nano_ft = eval_model_on_visdrone(
+    model_name="RF-DETR-Nano-FT",
+    predict_fn=rfdetr_ft_predict,
+    dataset=val_set,
+    max_images=None,
+)
+
+metrics_rfdetr_nano_ft
